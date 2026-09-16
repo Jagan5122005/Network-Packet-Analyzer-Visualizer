@@ -1,72 +1,138 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-import random
+import plotly.graph_objects as go
 import time
+import random
 
-st.set_page_config(page_title="Visual Network Packet Analyzer", layout="wide")
+st.set_page_config(page_title="Advanced Network Packet Analyzer v2.0", layout="wide")
 
-if 'packet_data' not in st.session_state:
-    st.session_state.packet_data = []
-if 'capturing' not in st.session_state:
-    st.session_state.capturing = False
+st.title("🌐 Advanced Network Packet Analyzer & Telemetry Dashboard v2.0")
+st.markdown("Real-time Network Traffic Monitoring, Threat Detection, and Protocol Analytics")
 
-sample_ips = ["192.168.1.1", "192.168.1.15", "10.0.0.4", "172.16.0.1", "8.8.8.8"]
-protocols = ["TCP", "UDP", "ICMP", "ARP"]
+# Session State Initialization
+if 'packets' not in st.session_state:
+    st.session_state.packets = []
+if 'is_running' not in st.session_state:
+    st.session_state.is_running = False
+
+# Sidebar Controls
+st.sidebar.header("⚙️ Traffic Controls & Filters")
+if st.sidebar.button("▶️ Start Live Monitoring"):
+    st.session_state.is_running = True
+if st.sidebar.button("⏹️ Stop Monitoring"):
+    st.session_state.is_running = False
+
+protocol_filter = st.sidebar.multiselect(
+    "Filter by Protocol:",
+    options=["TCP", "UDP", "ICMP", "ARP"],
+    default=["TCP", "UDP", "ICMP", "ARP"]
+)
 
 
-def generate_simulated_packet():
+# Packet Generator Function
+def generate_synthetic_packet():
+    protocols = ["TCP", "UDP", "ICMP", "ARP"]
+    sources = [f"192.168.1.{i}" for i in range(2, 20)] + ["10.0.0.5", "172.16.0.12"]
+    destinations = ["192.168.1.1", "8.8.8.8", "1.1.1.1", "142.250.190.46"]
+
+    proto = random.choices(protocols, weights=[0.5, 0.3, 0.1, 0.1])[0]
+    src = random.choice(sources)
+    dst = random.choice(destinations)
+    length = random.randint(64, 1500)
+
+    # Anomaly condition simulation
+    is_threat = False
+    if proto == "ICMP" and length > 1200:
+        is_threat = True
+    elif proto == "UDP" and random.random() < 0.05:
+        is_threat = True
+
     return {
         "Timestamp": time.strftime("%H:%M:%S"),
-        "Source": random.choice(sample_ips),
-        "Destination": random.choice(sample_ips),
-        "Protocol": random.choice(protocols),
-        "Length": random.randint(64, 1500)
+        "Source IP": src,
+        "Destination IP": dst,
+        "Protocol": proto,
+        "Length (Bytes)": length,
+        "Threat Alert": "⚠️ Suspicious Activity" if is_threat else "✅ Normal"
     }
 
 
-st.title("📡 Visual Network Packet Analyzer & Visualizer")
-st.caption("Real-Time OSI Layer & Protocol Sniffer Dashboard")
+# Dashboard Placeholders
+metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+chart_col1, chart_col2 = st.columns(2)
+alert_placeholder = st.empty()
+data_placeholder = st.empty()
 
-col_btn1, col_btn2, col_btn3 = st.columns(3)
+# Real-time Engine Loop
+if st.session_state.is_running:
+    new_packet = generate_synthetic_packet()
+    st.session_state.packets.append(new_packet)
+    if len(st.session_state.packets) > 100:
+        st.session_state.packets.pop(0)
 
-if col_btn1.button("▶️ Start Live Capture"):
-    st.session_state.capturing = True
+# Data Processing
+df = pd.DataFrame(st.session_state.packets)
 
-if col_btn2.button("⏹️ Stop Capture"):
-    st.session_state.capturing = False
+if not df.empty:
+    # Filter Data
+    filtered_df = df[df["Protocol"].isin(protocol_filter)]
 
-if col_btn3.button("🗑️ Clear Logs"):
-    st.session_state.packet_data = []
-    st.rerun()
+    # Calculate Live Metrics
+    total_packets = len(df)
+    tcp_count = len(df[df["Protocol"] == "TCP"])
+    udp_count = len(df[df["Protocol"] == "UDP"])
+    threat_count = len(df[df["Threat Alert"] != "✅ Normal"])
 
-if st.session_state.capturing:
-    for _ in range(random.randint(2, 5)):
-        st.session_state.packet_data.append(generate_simulated_packet())
-    time.sleep(0.8)
-    st.rerun()
+    metric_col1.metric("Total Packets", total_packets)
+    metric_col2.metric("TCP Packets", tcp_count)
+    metric_col3.metric("UDP Packets", udp_count)
+    metric_col4.metric("Security Alerts", threat_count, delta_color="inverse")
 
-if st.session_state.packet_data:
-    df = pd.DataFrame(st.session_state.packet_data)
+    # Threat Alert Box
+    if threat_count > 0:
+        alert_placeholder.warning(f"🚨 Security System Alert: {threat_count} anomalous network packets detected!")
+    else:
+        alert_placeholder.success("🛡️ System Secure: Network telemetry operating within normal parameters.")
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Packets Captured", len(df))
-    m2.metric("Unique Sources", df['Source'].nunique())
-    m3.metric("Top Protocol", df['Protocol'].mode()[0] if not df.empty else "N/A")
-
-    col_chart1, col_chart2 = st.columns(2)
-
-    with col_chart1:
+    # Charts
+    with chart_col1:
         st.subheader("Protocol Distribution")
-        fig_pie = px.pie(df, names='Protocol', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie = px.pie(filtered_df, names="Protocol", hole=0.4, title="Protocol Breakdown")
         st.plotly_chart(fig_pie, use_container_width=True)
 
-    with col_chart2:
-        st.subheader("Packet Size Breakdown")
-        fig_bar = px.histogram(df, x="Protocol", y="Length", histfunc="sum", color="Protocol")
-        st.plotly_chart(fig_bar, use_container_width=True)
+    with chart_col2:
+        st.subheader("Bandwidth Gauge (Bytes/Packet)")
+        avg_bandwidth = filtered_df["Length (Bytes)"].mean() if not filtered_df.empty else 0
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=avg_bandwidth,
+            title={'text': "Avg Packet Size (Bytes)"},
+            gauge={
+                'axis': {'range': [0, 1500]},
+                'bar': {'color': "darkblue"},
+                'steps': [
+                    {'range': [0, 500], 'color': "lightcyan"},
+                    {'range': [500, 1000], 'color': "royalblue"},
+                    {'range': [1000, 1500], 'color': "red"}
+                ]
+            }
+        ))
+        st.plotly_chart(fig_gauge, use_container_width=True)
 
-    st.subheader("📋 Raw Packet Inspector Table")
-    st.dataframe(df.tail(20), use_container_width=True)
-else:
-    st.info("Click 'Start Live Capture' to begin inspecting network traffic.")
+    # Data Table & CSV Export
+    st.subheader("Live Packet Inspection Stream")
+    data_placeholder.dataframe(filtered_df.tail(10), use_container_width=True)
+
+    csv_data = filtered_df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button(
+        label="📥 Export Packet Logs (CSV)",
+        data=csv_data,
+        file_name="network_packet_logs.csv",
+        mime="text/csv"
+    )
+
+if st.session_state.is_running:
+    time.sleep(1)
+    st.rerun()
